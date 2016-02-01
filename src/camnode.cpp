@@ -54,7 +54,7 @@
 #define TRIGGERSOURCE_LINE1		1
 #define TRIGGERSOURCE_LINE2		2
 
-#define ARV_PIXEL_FORMAT_BIT_PER_PIXEL(pixel_format)  (((pixel_format) >> 16) & 0xff)
+//#define ARV_PIXEL_FORMAT_BIT_PER_PIXEL(pixel_format)  (((pixel_format) >> 16) & 0xff)
 #define ARV_PIXEL_FORMAT_BYTE_PER_PIXEL(pixel_format) ((((pixel_format) >> 16) & 0xff) >> 3)
 typedef camera_aravis::CameraAravisConfig Config;
 
@@ -522,6 +522,10 @@ static void NewBuffer_callback (ArvStream *pStream, ApplicationData *pApplicatio
 			size_t buffer_size;
 			char *buffer_data = (char *) arv_buffer_get_data (pBuffer, &buffer_size);
 			
+			ArvBufferPayloadType payload_type = arv_buffer_get_payload_type(pBuffer);
+			if(payload_type != ARV_BUFFER_PAYLOAD_TYPE_IMAGE)
+				ROS_WARN("Unexpected payload type %d", payload_type);
+
 			pApplicationdata->nBuffers++;
 			std::vector<uint8_t> this_data(buffer_size);
 			memcpy(&this_data[0], buffer_data, buffer_size);
@@ -820,7 +824,89 @@ void WriteCameraFeaturesFromRosparam(void)
 	}
 } // WriteCameraFeaturesFromRosparam()
 
+const std::string& GetPixelEncoding(ArvPixelFormat pixel_format)
+{
+	static std::string none;
+	switch(pixel_format)
+	{
+	using namespace sensor_msgs::image_encodings;
 
+	// grayscale encodings
+	case ARV_PIXEL_FORMAT_MONO_8:
+		return MONO8;
+	case ARV_PIXEL_FORMAT_MONO_8_SIGNED:
+		return TYPE_8SC1; // OpenCV type
+	case ARV_PIXEL_FORMAT_MONO_16:
+		return MONO16;
+
+	// color encodings
+	case ARV_PIXEL_FORMAT_RGB_8_PACKED:
+		return RGB8;
+	case ARV_PIXEL_FORMAT_BGR_8_PACKED:
+		return BGR8;
+	case ARV_PIXEL_FORMAT_RGBA_8_PACKED:
+		return RGBA8;
+	case ARV_PIXEL_FORMAT_BGRA_8_PACKED:
+		return BGRA8;
+	case ARV_PIXEL_FORMAT_YUV_422_PACKED:
+		return YUV422;
+
+	// bayer encodings
+	case ARV_PIXEL_FORMAT_BAYER_GR_8:
+		return BAYER_GRBG8;
+	case ARV_PIXEL_FORMAT_BAYER_RG_8:
+		return BAYER_RGGB8;
+	case ARV_PIXEL_FORMAT_BAYER_GB_8:
+		return BAYER_GBRG8;
+	case ARV_PIXEL_FORMAT_BAYER_BG_8:
+		return BAYER_BGGR8;
+	case ARV_PIXEL_FORMAT_BAYER_GR_16:
+		return BAYER_GRBG8;
+	case ARV_PIXEL_FORMAT_BAYER_RG_16:
+		return BAYER_RGGB16;
+	case ARV_PIXEL_FORMAT_BAYER_GB_16:
+		return BAYER_GBRG16;
+	case ARV_PIXEL_FORMAT_BAYER_BG_16:
+		return BAYER_BGGR16;
+
+// unsupported encodings
+//	case ARV_PIXEL_FORMAT_BAYER_GR_10:
+//	case ARV_PIXEL_FORMAT_BAYER_RG_10:
+//	case ARV_PIXEL_FORMAT_BAYER_GB_10:
+//	case ARV_PIXEL_FORMAT_BAYER_BG_10:
+//	case ARV_PIXEL_FORMAT_BAYER_GR_12:
+//	case ARV_PIXEL_FORMAT_BAYER_RG_12:
+//	case ARV_PIXEL_FORMAT_BAYER_GB_12:
+//	case ARV_PIXEL_FORMAT_BAYER_BG_12:
+//	case ARV_PIXEL_FORMAT_BAYER_GR_12_PACKED:
+//	case ARV_PIXEL_FORMAT_BAYER_RG_12_PACKED:
+//	case ARV_PIXEL_FORMAT_BAYER_GB_12_PACKED:
+//	case ARV_PIXEL_FORMAT_BAYER_BG_12_PACKED:
+//	case ARV_PIXEL_FORMAT_RGB_10_PACKED:
+//	case ARV_PIXEL_FORMAT_BGR_10_PACKED:
+//	case ARV_PIXEL_FORMAT_RGB_12_PACKED:
+//	case ARV_PIXEL_FORMAT_BGR_12_PACKED:
+//	case ARV_PIXEL_FORMAT_YUV_411_PACKED:
+//	case ARV_PIXEL_FORMAT_YUV_444_PACKED:
+//	case ARV_PIXEL_FORMAT_RGB_8_PLANAR:
+//	case ARV_PIXEL_FORMAT_RGB_10_PLANAR:
+//	case ARV_PIXEL_FORMAT_RGB_12_PLANAR:
+//	case ARV_PIXEL_FORMAT_RGB_16_PLANAR:
+//	case ARV_PIXEL_FORMAT_YUV_422_YUYV_PACKED:
+//	case ARV_PIXEL_FORMAT_CUSTOM_BAYER_GR_12_PACKED:
+//	case ARV_PIXEL_FORMAT_CUSTOM_BAYER_RG_12_PACKED:
+//	case ARV_PIXEL_FORMAT_CUSTOM_BAYER_GB_12_PACKED:
+//	case ARV_PIXEL_FORMAT_CUSTOM_BAYER_BG_12_PACKED:
+//	case ARV_PIXEL_FORMAT_CUSTOM_YUV_422_YUYV_PACKED:
+//	case ARV_PIXEL_FORMAT_CUSTOM_BAYER_GR_16:
+//	case ARV_PIXEL_FORMAT_CUSTOM_BAYER_RG_16:
+//	case ARV_PIXEL_FORMAT_CUSTOM_BAYER_GB_16:
+//	case ARV_PIXEL_FORMAT_CUSTOM_BAYER_BG_16:
+
+	}
+
+	return none;
+} // GetPixelEncoding()
 
 int main(int argc, char** argv) 
 {
@@ -1022,7 +1108,12 @@ int main(int argc, char** argv)
 		arv_camera_get_region (global.pCamera, &global.xRoi, &global.yRoi, &global.widthRoi, &global.heightRoi);
 		global.config.ExposureTimeAbs 	= global.isImplementedExposureTimeAbs ? arv_device_get_float_feature_value (global.pDevice, "ExposureTimeAbs") : 0;
 		global.config.Gain      		= global.isImplementedGain ? arv_camera_get_gain (global.pCamera) : 0.0;
-		global.pszPixelformat   		= g_string_ascii_down(g_string_new(arv_device_get_string_feature_value(global.pDevice, "PixelFormat")))->str;
+		global.pszPixelformat           = GetPixelEncoding(arv_camera_get_pixel_format(global.pCamera)).c_str();
+		if(!*global.pszPixelformat)
+		{
+			global.pszPixelformat = g_string_ascii_down(g_string_new(arv_device_get_string_feature_value(global.pDevice, "PixelFormat")))->str;
+			ROS_WARN("Pixelformat %s unsupported",global.pszPixelformat);
+		}
 		global.nBytesPixel      		= ARV_PIXEL_FORMAT_BYTE_PER_PIXEL(arv_device_get_integer_feature_value(global.pDevice, "PixelFormat"));
 		global.config.FocusPos  		= global.isImplementedFocusPos ? arv_device_get_integer_feature_value (global.pDevice, "FocusPos") : 0;
 		

@@ -54,7 +54,6 @@
 #define TRIGGERSOURCE_LINE1		1
 #define TRIGGERSOURCE_LINE2		2
 
-//#define ARV_PIXEL_FORMAT_BIT_PER_PIXEL(pixel_format)  (((pixel_format) >> 16) & 0xff)
 #define ARV_PIXEL_FORMAT_BYTE_PER_PIXEL(pixel_format) ((((pixel_format) >> 16) & 0xff) >> 3)
 typedef camera_aravis::CameraAravisConfig Config;
 
@@ -102,6 +101,7 @@ struct global_s
 	int         							heightRoi;
 	int										heightRoiMin;
 	int										heightRoiMax;
+
 
 	int                                     widthSensor;
 	int                                     heightSensor;
@@ -522,6 +522,8 @@ static void NewBuffer_callback (ArvStream *pStream, ApplicationData *pApplicatio
 			size_t buffer_size;
 			char *buffer_data = (char *) arv_buffer_get_data (pBuffer, &buffer_size);
 			
+			// TODO handle other buffer types such as payloads with chuck data and
+			// compressed image formats
 			ArvBufferPayloadType payload_type = arv_buffer_get_payload_type(pBuffer);
 			if(payload_type != ARV_BUFFER_PAYLOAD_TYPE_IMAGE)
 				ROS_WARN("Unexpected payload type %d", payload_type);
@@ -567,11 +569,11 @@ static void NewBuffer_callback (ArvStream *pStream, ApplicationData *pApplicatio
 			msg.header.stamp.fromNSec(tn);
 			msg.header.seq = arv_buffer_get_frame_id (pBuffer);
 			msg.header.frame_id = global.config.frame_id;
-			msg.width = global.widthRoi;
-			msg.height = global.heightRoi;
-			msg.encoding = global.pszPixelformat;
+			msg.width = arv_buffer_get_image_width(pBuffer); //global.widthRoi;
+			msg.height = arv_buffer_get_image_height(pBuffer); //global.heightRoi;
+			msg.encoding = global.pszPixelformat; // should really check if format has changed since last call
 			msg.step = msg.width * global.nBytesPixel;
-			msg.data = this_data;
+			msg.data = this_data; // !! wrong size when chunk mode is enabled
 
 			// get current CameraInfo data
 			global.camerainfo = global.pCameraInfoManager->getCameraInfo();
@@ -585,7 +587,7 @@ static void NewBuffer_callback (ArvStream *pStream, ApplicationData *pApplicatio
 				
         }
         else
-        	ROS_WARN ("Frame error: %s", szBufferStatusFromInt[arv_buffer_get_status (pBuffer)]);
+        	ROS_WARN ("Frame %d error: %s ", arv_buffer_get_frame_id (pBuffer), szBufferStatusFromInt[arv_buffer_get_status (pBuffer)]);
         	
         arv_stream_push_buffer (pStream, pBuffer);
         iFrame++;
@@ -824,50 +826,34 @@ void WriteCameraFeaturesFromRosparam(void)
 	}
 } // WriteCameraFeaturesFromRosparam()
 
-const std::string& GetPixelEncoding(ArvPixelFormat pixel_format)
+const char* GetPixelEncoding(ArvPixelFormat pixel_format)
 {
 	static std::string none;
 	switch(pixel_format)
 	{
 	using namespace sensor_msgs::image_encodings;
 
-	// grayscale encodings
-	case ARV_PIXEL_FORMAT_MONO_8:
-		return MONO8;
-	case ARV_PIXEL_FORMAT_MONO_8_SIGNED:
-		return TYPE_8SC1; // OpenCV type
-	case ARV_PIXEL_FORMAT_MONO_16:
-		return MONO16;
+	// supported grayscale encodings
+	case ARV_PIXEL_FORMAT_MONO_8:         return MONO8.c_str();
+	case ARV_PIXEL_FORMAT_MONO_8_SIGNED:  return TYPE_8SC1.c_str(); // OpenCV type
+	case ARV_PIXEL_FORMAT_MONO_16:        return MONO16.c_str();
 
-	// color encodings
-	case ARV_PIXEL_FORMAT_RGB_8_PACKED:
-		return RGB8;
-	case ARV_PIXEL_FORMAT_BGR_8_PACKED:
-		return BGR8;
-	case ARV_PIXEL_FORMAT_RGBA_8_PACKED:
-		return RGBA8;
-	case ARV_PIXEL_FORMAT_BGRA_8_PACKED:
-		return BGRA8;
-	case ARV_PIXEL_FORMAT_YUV_422_PACKED:
-		return YUV422;
+	// supported color encodings
+	case ARV_PIXEL_FORMAT_RGB_8_PACKED:   return RGB8.c_str();
+	case ARV_PIXEL_FORMAT_BGR_8_PACKED:   return BGR8.c_str();
+	case ARV_PIXEL_FORMAT_RGBA_8_PACKED:  return RGBA8.c_str();
+	case ARV_PIXEL_FORMAT_BGRA_8_PACKED:  return BGRA8.c_str();
+	case ARV_PIXEL_FORMAT_YUV_422_PACKED: return YUV422.c_str();
 
-	// bayer encodings
-	case ARV_PIXEL_FORMAT_BAYER_GR_8:
-		return BAYER_GRBG8;
-	case ARV_PIXEL_FORMAT_BAYER_RG_8:
-		return BAYER_RGGB8;
-	case ARV_PIXEL_FORMAT_BAYER_GB_8:
-		return BAYER_GBRG8;
-	case ARV_PIXEL_FORMAT_BAYER_BG_8:
-		return BAYER_BGGR8;
-	case ARV_PIXEL_FORMAT_BAYER_GR_16:
-		return BAYER_GRBG8;
-	case ARV_PIXEL_FORMAT_BAYER_RG_16:
-		return BAYER_RGGB16;
-	case ARV_PIXEL_FORMAT_BAYER_GB_16:
-		return BAYER_GBRG16;
-	case ARV_PIXEL_FORMAT_BAYER_BG_16:
-		return BAYER_BGGR16;
+	// supported bayer encodings
+	case ARV_PIXEL_FORMAT_BAYER_GR_8:     return BAYER_GRBG8.c_str();
+	case ARV_PIXEL_FORMAT_BAYER_RG_8:     return BAYER_RGGB8.c_str();
+	case ARV_PIXEL_FORMAT_BAYER_GB_8:     return BAYER_GBRG8.c_str();
+	case ARV_PIXEL_FORMAT_BAYER_BG_8:     return BAYER_BGGR8.c_str();
+	case ARV_PIXEL_FORMAT_BAYER_GR_16:    return BAYER_GRBG8.c_str();
+	case ARV_PIXEL_FORMAT_BAYER_RG_16:    return BAYER_RGGB16.c_str();
+	case ARV_PIXEL_FORMAT_BAYER_GB_16:    return BAYER_GBRG16.c_str();
+	case ARV_PIXEL_FORMAT_BAYER_BG_16:    return BAYER_BGGR16.c_str();
 
 // unsupported encodings
 //	case ARV_PIXEL_FORMAT_BAYER_GR_10:
@@ -905,7 +891,7 @@ const std::string& GetPixelEncoding(ArvPixelFormat pixel_format)
 
 	}
 
-	return none;
+	return 0;
 } // GetPixelEncoding()
 
 int main(int argc, char** argv) 
@@ -1108,8 +1094,8 @@ int main(int argc, char** argv)
 		arv_camera_get_region (global.pCamera, &global.xRoi, &global.yRoi, &global.widthRoi, &global.heightRoi);
 		global.config.ExposureTimeAbs 	= global.isImplementedExposureTimeAbs ? arv_device_get_float_feature_value (global.pDevice, "ExposureTimeAbs") : 0;
 		global.config.Gain      		= global.isImplementedGain ? arv_camera_get_gain (global.pCamera) : 0.0;
-		global.pszPixelformat           = GetPixelEncoding(arv_camera_get_pixel_format(global.pCamera)).c_str();
-		if(!*global.pszPixelformat)
+		global.pszPixelformat           = GetPixelEncoding(arv_camera_get_pixel_format(global.pCamera));
+		if(!global.pszPixelformat)
 		{
 			global.pszPixelformat = g_string_ascii_down(g_string_new(arv_device_get_string_feature_value(global.pDevice, "PixelFormat")))->str;
 			ROS_WARN("Pixelformat %s unsupported",global.pszPixelformat);
@@ -1182,6 +1168,7 @@ int main(int argc, char** argv)
 				break;
 			else
 			{
+				// TODO exit after N tries
 				ROS_WARN("Could not create image stream for %s.  Retrying...", pszGuid);
 				ros::Duration(1.0).sleep();
 			    ros::spinOnce();

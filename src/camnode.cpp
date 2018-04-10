@@ -1078,7 +1078,9 @@ int main(int argc, char** argv)
 #endif
     	
 		// Start the camerainfo manager.
-		global.pCameraInfoManager = new camera_info_manager::CameraInfoManager(ros::NodeHandle(ros::this_node::getName()), arv_device_get_string_feature_value (global.pDevice, "DeviceID"));
+		ros::NodeHandle nh_priv("~");
+		std::string url = nh_priv.param<std::string>("camera_info_url", "");
+		global.pCameraInfoManager = new camera_info_manager::CameraInfoManager(ros::NodeHandle(ros::this_node::getName()), arv_device_get_string_feature_value (global.pDevice, "DeviceID"), url);
 
 		// Start the dynamic_reconfigure server.
 		dynamic_reconfigure::Server<Config> 				reconfigureServer;
